@@ -87,6 +87,7 @@ extension StatusBarTrigger {
     private func _theScrollView(_ view: UIView) -> UIScrollView? {
         for v in view.subviews.reversed() {
             if let sv = v as? UIScrollView,
+                sv.window != nil,
                 sv.scrollsToTop {
                 return sv
             } else {
