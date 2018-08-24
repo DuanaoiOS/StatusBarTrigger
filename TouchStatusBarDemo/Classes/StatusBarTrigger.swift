@@ -21,6 +21,7 @@ extension StatusBarTrigger {
         static var shouldRollBackKey = "shouldRollBackKey"
     }
     
+    /// 是否支持状态触发回滚
     public var shouldRollBack: Bool {
         get {
             return objc_getAssociatedObject(self,
@@ -34,6 +35,7 @@ extension StatusBarTrigger {
         }
     }
     
+    /// scrollview偏移缓存
     private var originalOffsetMap : [Int : CGPoint] {
         get {
             return objc_getAssociatedObject(self,
@@ -47,14 +49,16 @@ extension StatusBarTrigger {
         }
     }
     
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        super.touchesEnded(touches, with: event)
+    /// 拦截点击事件
+    ///
+    /// - Parameters:
+    ///   - touches: ——
+    ///   - event: -
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        super.touchesBegan(touches, with: event)
         
-        transpondTocuh(touches, with: event)
+        guard shouldRollBack else { return }
         
-        guard self.shouldRollBack else {
-            return
-        }
         let location = event?.allTouches?.first!.location(in: self.window)
         let statusBarFrame = UIApplication.shared.statusBarFrame
         
@@ -64,15 +68,20 @@ extension StatusBarTrigger {
             let sv = _theScrollView(topVc.view) else {
                 return
         }
+        transpondTocuh(touches, with: event)
+
+        if (sv.isDragging || sv.isTracking || sv.isDecelerating) {
+            return
+        }
         let offset = sv.contentOffset
-        if offset.y == 0,
-            let originOffset = self.originalOffsetMap[sv.hashValue] {
+        if let originOffset = originalOffsetMap[sv.hashValue] {
             sv.setContentOffset(originOffset, animated: true)
-        } else {
-            self.originalOffsetMap[sv.hashValue] = offset
+        } else if offset.y > 5 {
+            originalOffsetMap[sv.hashValue] = offset
         }
     }
     
+    // MARK: -  辅助方法
     private func _theTopVc() -> UIViewController? {
         var topVc = self.window?.rootViewController
         while let presentedVc = topVc?.presentedViewController  {
@@ -85,38 +94,51 @@ extension StatusBarTrigger {
     }
     
     private func _theScrollView(_ view: UIView) -> UIScrollView? {
+        if view.subviews.isEmpty {
+            return nil
+        }
+        let contains = view.superview?.convert(view.frame, to: UIApplication.shared.keyWindow) ?? .zero
+        let isVisible = contains.intersects(UIApplication.shared.keyWindow!.frame)
+        
+        if let sv = view as? UIScrollView,
+            !sv.isHidden,
+            sv.window != nil,
+            isVisible,
+            sv.scrollsToTop {
+            return sv
+        }
         for v in view.subviews.reversed() {
-            if let sv = v as? UIScrollView,
-                sv.window != nil,
-                sv.scrollsToTop {
+            if let sv = _theScrollView(v) {
                 return sv
-            } else {
-                return _theScrollView(v)
             }
         }
         return nil
     }
     
+    /// 单击和双击事件分发
+    ///
+    /// - Parameters:
+    ///   - touches: --
+    ///   - event: ---
     private func transpondTocuh(_ touches: Set<UITouch>, with event: UIEvent?) {
         if touches.count == 1,
             let touch = touches.first {
             switch touch.tapCount {
             case 1:
-                self.perform(#selector(postNoti(_:)),
+                perform(#selector(postNoti(_:)),
                                  with: NotificationKey.kTapStatusNotification,
                                  afterDelay: 0.3)
             case 2:
                 NSObject.cancelPreviousPerformRequests(withTarget: self,
                                                        selector: #selector(postNoti(_:)),
                                                        object: NotificationKey.kTapStatusNotification)
-                self.postNoti(NotificationKey.kDoubleTapStatusNotification)
+                postNoti(NotificationKey.kDoubleTapStatusNotification)
             default: break
             }
         }
     }
     
-    @objc
-    private func postNoti(_ name: String) {
+    @objc private func postNoti(_ name: String) {
         NotificationCenter.default.post(name: Notification.Name.init(name), object: nil)
     }
 }
